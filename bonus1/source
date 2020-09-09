@@ -1,0 +1,35 @@
+#include <stdlib.h>	//atoi()
+#include <string.h>	//memcpy()
+#include <unistd.h>	//execl()
+
+int	main(int argc, char **argv)
+{
+	int		n;
+	char	dest[40];
+
+	n = atoi(argv[1]);
+	if (n > 9)
+		return (1);
+
+	memcpy(dest, argv[2], n * 4); 
+	if (n == 0x574f4c46)
+		execl("/bin/sh", (char *)NULL);
+
+	return (0);
+}
+
+
+/*
+Stack : 
+
+--> argv
+--> argc
+--> EIP
+--> EBP
+--> 
+--> n:		(esp+0x3c)
+--> 
+--> dest:	(esp+0x14)
+--> 
+--> esp
+*/

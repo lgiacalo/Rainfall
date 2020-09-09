@@ -1,0 +1,40 @@
+#include <cstring> // strlen
+#include <stdlib.h> // exit
+
+class N {
+	// vtable[0:3]
+	char	m_buf[0x64];
+	int		m_x;
+	public:
+		N(int x)
+		{
+			m_x = x;
+		}
+
+		void setAnnotation(char *str)
+		{
+			memcpy(m_buf, str, strlen(str)); // possible buffer overflow
+		}
+
+		virtual int method(N *n)
+		{
+			return (m_x + n->m_x);
+		}
+};
+
+int	main(int argc, char **argv)
+{
+	N	*var_1ch;
+	N	*var_18h;
+	N	*var_14h;
+	N	*var_10h;
+
+	if (argc < 2)
+		exit(1);
+	var_1ch = new N(5);
+	var_18h = new N(6);
+	var_14h = var_1ch;
+	var_10h = var_18h;
+	var_1ch->setAnnotation(argv[1]);
+	return (var_10h->method(var_14h));
+}

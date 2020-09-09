@@ -1,0 +1,34 @@
+#include <stdio.h> // puts
+#include <unistd.h> // read
+#include <string.h> // strcat, strcpy
+
+void	p(char *dest, const char *src)
+{
+	char	var_1008h[0x1010];
+
+	puts(src);
+	read(0, var_1008h, 0x1000);
+	*(char *)strchr(var_1008h, 0xa) = 0;
+	strncpy(dest, var_1008h, 0x14);
+}
+
+void	pp(char *dest)
+{
+	char	var_30h[0x14];
+	char	var_1ch[0x1c];
+
+	p(var_30h, " - ");
+	p(var_1ch, " - ");
+	strcpy(dest, var_30h);
+	strcat(dest, " ");
+	strcat(dest, var_1ch);
+}
+
+int	main(int argc, char **argv)
+{
+	char	s[0x2a]; // 0x36 to eip
+
+	pp(s);
+	puts(s);
+	return (0);
+}

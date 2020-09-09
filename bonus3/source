@@ -1,0 +1,33 @@
+#include <stdlib.h> // atoi
+#include <stdio.h> // fopen, fread
+#include <string.h> // bzero
+#include <unistd.h> // execl
+
+int main(int argc, char **argv)
+{
+	FILE	*local_9ch;
+	char	local_18h[136];
+	int	nb;
+
+	local_9ch = fopen("/home/user/end/.pass", "r");
+	bzero(local_18h, 33 * 4);
+	if (!local_9ch || argc != 2)
+		return (-1);
+	
+	fread(local_18h, 1, 66, local_9ch);
+	nb = atoi(argv[1]);
+	local_18h[nb] = 0;
+
+	fread(local_18h + 66, 1, 65, local_9ch);
+	fclose(local_9ch);
+
+	if (!strcmp(local_18h, argv[1]))
+	{
+		execl("/bin/sh", 0);	
+	}
+	else
+	{
+		puts(local_18h + 66);
+	}
+	return (0);
+}

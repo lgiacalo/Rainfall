@@ -1,0 +1,60 @@
+# Level 8
+## Résumé
+Interpréteur de commandes, ordres prédéfinis  => Buffer overflow => variable à `1` => `system(bin/sh)`
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level9 users 6057 Mar  6  2016 level8
+$> file level8 
+level8: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0x3067a180acabc94d328ab89f0a5a914688bf67ab, not stripped
+```
+Le home contient un binaire appartenant à l'user `level9` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level9/.pass`.
+
+On récupère le fichier `level8` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level8@10.11.200.192:/home/user/level8/level8 .
+$> r2 level8
+```
+![main_function_1](Ressources/main_function_1.png)
+![main_function_2](Ressources/main_function_2.png)
+![main_function_3](Ressources/main_function_3.png)
+
+## Analyse
+### Analyse du programme
+Le programme contient 2 variables globales `auth` et `service` qui sont des pointeurs sur caractère.
+
+La fontion `main` déclare sur la `stack` un buffer de `128` octets qui servira au stockage de l'entrée utilisateur.  
+Dans un boucle infinie, l'entrée utilisateur (interprété comme une commande) et son traitement s'effectue dans un boucle infinie. Les commandes intéressantes sont :  
+1. `auth ` (avec un espace de fin)  
+  Alloue sur la heap 4 octets pour la variable `auth`.
+  Si le reste de la commande a une longueur inférieure `30`, fait un `strcpy` vers l'espace alloué à `auth`. **Il y a un dépassement de mémoire possible ici !**  
+2. `servic` (le `e` final de `service` n'est pas pris en compte)  
+  Effectue un `strdup` à partir du 8ème caractère de l'entrée utilisateur vers la variable globale `service`.  
+3. `login`  
+  Si `auth[32] n'est pas égal à zéro, alors fait un appel à `system("bin/sh")` ce qui permettrait d'avoir accès au token.
+
+### Mise en place de l'exploitation
+Pour avoir accès au shell grâce à la commande `login`, nous devons réaliser un dépassement de mémoire pour écrire à `auth[32]`.  
+Celui-ci ne peut être réalisé que par la commande `servic` qui effectue un `strdup` de l'entrée utilisateur + 7 pour deux raisons :
+1. la commande `auth` qui effectue un strcpy vérifie que l'entrée utilisateur est inférieure à 30 caractères, ce qui est trop faible.
+2. la mémoire allouée sur la heap pour la variable `service` se trouve juste après `auth`. Comme `auth` a reçu l'adresse d'un malloc(4), `service` se trouve donc à `auth + 0x10` qui est la taille minimale d'un malloc. Nous somme donc avant l'adresse de `auth[32]`, et nous pouvons écrire sur cette adresse mémoire.
+
+La procédure est donc :  
+1. allouer la mémoire de la variable `auth`, car auth[32] sera testé dans la commande `login`.  
+2. réaliser un dépassement de mémoire après la commande `servic`, d'au moins 0x10 caractères.  
+3. appeler la commande `login` pour avoir le shell.
+## Application
+```sh
+$> ./level8
+(nil), (nil) 
+auth 
+0x804a008, (nil) 
+serviceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0x804a008, 0x804a018 
+login
+$ id
+uid=2008(level8) gid=2008(level8) euid=2009(level9) egid=100(users) groups=2009(level9),100(users),2008(level8)
+$ cat /home/user/level9/.pass
+c542e581c5ba5162a85f767996e3247ed619ef6c6f7b76a59435545dc6259f8a
+```

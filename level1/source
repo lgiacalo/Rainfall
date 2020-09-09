@@ -1,0 +1,21 @@
+#include <stdio.h> // fwrite
+#include <stdlib.h> // system
+
+void run()
+{
+	size_t size, nitems;
+
+	size = 1;
+	nitems = 19;
+	fwrite("Good... Wait what?\n", size, nitems, stdout);
+
+	system("/bin/sh");
+	return ;
+}
+
+int	main(void)
+{
+	char buf[64];
+
+	return (gets(buf));
+}

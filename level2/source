@@ -1,0 +1,37 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+
+void p(int32_t arg_4h)
+{
+	char src[72];
+	// arg_4h; //= ebp + 0x4 = eip 
+	// (l''eip apres la fin de la fonction p donc celui qui revient dans le main)
+	int32_t var_ch;
+
+	fflush(stdout); //fflush(stdout) force l'affichage (vide le buffer)
+	gets(src); //exploit here - (c * 80 + eip)
+
+	var_ch = arg_4h; 
+
+// verif si eip est une addresse sur la stack, genre pour faire un shellcode pas possible
+	if (var_ch & 0xb000000){
+		printf("(%p)\n", var_ch);
+		exit(1);
+	}
+	else {
+		puts(src);
+		strdup(src);
+	}
+	return;
+	
+}
+
+
+int	main(void)
+{
+	int32_t	eip;
+
+	p(eip);
+	return (0);
+}

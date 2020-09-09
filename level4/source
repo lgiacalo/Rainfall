@@ -1,0 +1,27 @@
+#include <stdio.h> // fgets
+#include <stdlib.h> // system
+
+int	m = 0;
+
+void	p(char *format)
+{
+	printf(format);
+}
+
+int		n(void)
+{
+	char	buf[520];
+
+	fgets(buf, 512, stdin);
+	p(buf);
+	if (m == 0x1025544)
+	{
+		return (system("/bin/cat /home/user/level5/.pass"));
+	}
+	return (m);
+}
+
+int		main(int argc, char **argv)
+{
+	return (n());
+}

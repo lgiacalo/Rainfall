@@ -1,0 +1,26 @@
+#include <stdio.h> // puts
+#include <stdlib.h> // system, malloc
+#include <string.h> //strcpy
+
+void	n(void)
+{
+	system("/bin/cat /home/user/level7/.pass");
+}
+
+void	m(void)
+{
+	puts("Nope");
+}
+
+int		main(int argc, char **argv)
+{
+	char	*dest;
+	void	(**var_18h)(void);
+
+	dest = malloc(64);
+	var_18h = malloc(4);
+	*var_18h = &m;
+	strcpy(dest, argv[1]);
+	(*var_18h)();
+	return (0);
+}

