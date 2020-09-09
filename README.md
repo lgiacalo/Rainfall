@@ -1,45 +1,6 @@
 # Rainfall
 > Security challenges focused on binaries: buffer overflows, printf insertions, shellcode injections and binary analysis. The project ressources (ISO and subject) are avaible in the 42 school intranet.
 
-## Common walkthrough
-
-We use `radare2` to analyse the binary:
-- We disassemble using the visual mode `r2 ./level0` then `v`.
-
-We use `gdb` to debug the runtime:
-  - breakpoints: `b *addr` and `b function`
-  - move: `nexti`, `stepi`
-  - run: `r`, `r $(CMD)`, `r < file` 
-
-## Resources
-
-### Used exploits
-
-- **Return-to-libc** (replacing the RET addr in stack)
-- **Buffer overflows** with unsecure `gets`, `strcat` and `strcpy`
-- **Format string attacks**
-- Exploits in binaries behaviour
-- Bad use of casted values
-
-### Programs
-- `r2`: disassembly ([doc](https://radare.gitbooks.io/radare2book/visual_mode/intro.html))
-- `gdb`: runtime debugging and disassembly
-- `readelf`
-- `ltrace`
-- `python` scripting
-
-### Helpers
-- [Shellcode list](http://shell-storm.org/shellcode/)
-- [Overflow pattern generator](https://wiremask.eu/tools/buffer-overflow-pattern-generator/)
-- [Int/Uint converter](https://www.binaryconvert.com/convert_unsigned_int.html)
-- [X86 Cheatsheet](https://trailofbits.github.io/ctf/vulnerabilities/references/X86_Win32_Reverse_Engineering_Cheat_Sheet.pdf)
-- [SIG list](https://unix.stackexchange.com/questions/317492/list-of-kill-signals)
-
-### Learning
-
-- [Understand overflow attacks, with stack, registers, etc ❤](https://itandsecuritystuffs.wordpress.com/2014/03/18/understanding-buffer-overflows-attacks-part-1/)
-- [Buffer overflow with an environment variable](http://seanmurphree.com/blog/?p=54)
-
 ## Presentation
 The project is contained in a virtual machine ISO that has 14 users. We know the password for the first one. To access the next user, we must exploit the given binary to extract the next user password.
 
@@ -108,7 +69,44 @@ This means we can't rewrite the program code in ram.
 > rpath designates the run-time search path hard-coded in an executable file or library. Dynamic linking loaders use the rpath to find required libraries.
 
 
+## Common walkthrough
+
+We use `radare2` to analyse the binary:
+- We disassemble using the visual mode `r2 ./level0` then `v`.
+
+We use `gdb` to debug the runtime:
+  - breakpoints: `b *addr` and `b function`
+  - move: `nexti`, `stepi`
+  - run: `r`, `r $(CMD)`, `r < file` 
+
+## Resources
+
+### Used exploits
+
+- **Return-to-libc** (replacing the RET addr in stack)
+- **Buffer overflows** with unsecure `gets`, `strcat` and `strcpy`
+- **Format string attacks**
+- Exploits in binaries behaviour
+- Bad use of casted values
+
+### Programs
+- `r2`: disassembly ([doc](https://radare.gitbooks.io/radare2book/visual_mode/intro.html))
+- `gdb`: runtime debugging and disassembly
+- `readelf`
+- `ltrace`
+- `python` scripting
+
+### Helpers
+- [Shellcode list](http://shell-storm.org/shellcode/)
+- [Overflow pattern generator](https://wiremask.eu/tools/buffer-overflow-pattern-generator/)
+- [Int/Uint converter](https://www.binaryconvert.com/convert_unsigned_int.html)
+- [X86 Cheatsheet](https://trailofbits.github.io/ctf/vulnerabilities/references/X86_Win32_Reverse_Engineering_Cheat_Sheet.pdf)
+- [SIG list](https://unix.stackexchange.com/questions/317492/list-of-kill-signals)
+
+### Learning
+
+- [Understand overflow attacks, with stack, registers, etc ❤](https://itandsecuritystuffs.wordpress.com/2014/03/18/understanding-buffer-overflows-attacks-part-1/)
+- [Buffer overflow with an environment variable](http://seanmurphree.com/blog/?p=54)
 
 
 
-Rainfall is an iso of challenge slightly more complex than Snow Crash which will plunge us in the meanders of the reverse engineering and will teach us to rebuild a code and to understand its operation in order to find the flaws.
